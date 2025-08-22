@@ -14,6 +14,10 @@ import {
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
 import { searchPlacesWithNearby, Place, getPlaceReviews } from "../api/googlePlaces";
+import styles from "./AttractionsScreenStyles";
+import { handleNavigate } from "../utils/navigationUtils";
+import { toggleDistance, toggleRating, toggleType } from "../utils/filterUtils";
+import { applyFilters } from "../utils/applyFiltersUtils";
 
 type Filters = {
   types: string[];
@@ -49,29 +53,6 @@ export default function AttractionsScreen() {
       setUserLocation({ lat: location.coords.latitude, lng: location.coords.longitude });
     })();
   }, []);
-
-  const toggleType = (type: string) => {
-    setFilters((prev) => ({
-      ...prev,
-      types: prev.types.includes(type)
-        ? prev.types.filter((t) => t !== type)
-        : [...prev.types, type],
-    }));
-  };
-
-  const toggleRating = (r: number) => {
-    setFilters((prev) => ({
-      ...prev,
-      ratings: prev.ratings.includes(r) ? prev.ratings.filter((x) => x !== r) : [...prev.ratings, r],
-    }));
-  };
-
-  const toggleDistance = (d: number) => {
-    setFilters((prev) => ({
-      ...prev,
-      maxDistance: prev.maxDistance === d ? 0 : d, // 0 = no limit
-    }));
-  };
 
   const applyFiltersToPlaces = (places: Place[]): Place[] => {
     const filtered = places.filter((p) => {
@@ -110,33 +91,6 @@ export default function AttractionsScreen() {
     }
   };
 
-  const applyFilters = async () => {
-    setShowFilter(false);
-    if (!currentQuery) return;
-    setLoading(true);
-    try {
-      let results = await searchPlacesWithNearby(currentQuery);
-      results = applyFiltersToPlaces(results);
-      setPlaces(results);
-      setPinPlace(results[0] ?? null);
-    } catch (err) {
-      console.error("Apply filters failed", err);
-      setPlaces([]);
-      setPinPlace(null);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleNavigate = (destination: Place) => {
-    if (!userLocation) {
-      alert("User location not available.");
-      return;
-    }
-    const url = `https://www.google.com/maps/dir/?api=1&origin=${userLocation.lat},${userLocation.lng}&destination=${destination.lat},${destination.lng}&travelmode=driving`;
-    Linking.openURL(url);
-  };
-
   const openReview = async (place: Place) => {
     try {
       const reviews = await getPlaceReviews(place.id);
@@ -162,7 +116,7 @@ export default function AttractionsScreen() {
           <Text style={styles.distance}>{item.distance.toFixed(1)} km from exact match</Text>
         )}
         <View style={{ flexDirection: "row", marginTop: 6 }}>
-          <TouchableOpacity style={styles.actionButton} onPress={() => handleNavigate(item)}>
+          <TouchableOpacity style={styles.actionButton} onPress={() => handleNavigate(userLocation, item)}>
             <Text style={styles.actionButtonText}>Navigate</Text>
           </TouchableOpacity>
           <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#ff5722" }]} onPress={() => openReview(item)}>
@@ -194,44 +148,44 @@ export default function AttractionsScreen() {
           <View style={styles.modalContent}>
             <Text style={{ fontWeight: "600", marginBottom: 8 }}>Filter by Type:</Text>
             <View style={{ flexDirection: "row", flexWrap: "wrap" }}>
-              {PLACE_TYPES.map((t) => (
+              {PLACE_TYPES.map((types) => (
                 <TouchableOpacity
-                  key={t}
-                  style={[styles.typeButton, filters.types.includes(t) && styles.typeButtonSelected]}
-                  onPress={() => toggleType(t)}
+                  key={types}
+                  style={[styles.typeButton, filters.types.includes(types) && styles.typeButtonSelected]}
+                  onPress={() => toggleType(types, filters, setFilters)}
                 >
-                  <Text style={{ color: filters.types.includes(t) ? "#fff" : "#000" }}>{t}</Text>
+                  <Text style={{ color: filters.types.includes(types) ? "#fff" : "#000" }}>{types}</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             <Text style={{ fontWeight: "600", marginTop: 12 }}>Minimum Rating:</Text>
             <View style={{ flexDirection: "row", marginVertical: 6 }}>
-              {STAR_RATINGS.map((r) => (
+              {STAR_RATINGS.map((rating) => (
                 <TouchableOpacity
-                  key={r}
-                  style={[styles.ratingButton, filters.ratings.includes(r) && styles.ratingButtonSelected]}
-                  onPress={() => toggleRating(r)}
+                  key={rating}
+                  style={[styles.ratingButton, filters.ratings.includes(rating) && styles.ratingButtonSelected]}
+                  onPress={() => toggleRating(rating, filters, setFilters)}
                 >
-                  <Text>{r}⭐</Text>
+                  <Text>{rating}⭐</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
             <Text style={{ fontWeight: "600", marginTop: 12 }}>Max Distance (km):</Text>
             <View style={{ flexDirection: "row", marginVertical: 6 }}>
-              {DISTANCES.map((d) => (
+              {DISTANCES.map((distance) => (
                 <TouchableOpacity
-                  key={d}
-                  style={[styles.distanceButton, filters.maxDistance === d && styles.distanceButtonSelected]}
-                  onPress={() => toggleDistance(d)}
+                  key={distance}
+                  style={[styles.distanceButton, filters.maxDistance === distance && styles.distanceButtonSelected]}
+                  onPress={() => toggleDistance(distance, filters, setFilters)}
                 >
-                  <Text>{d} km</Text>
+                  <Text>{distance} km</Text>
                 </TouchableOpacity>
               ))}
             </View>
 
-            <Button title="Apply Filters" onPress={applyFilters} />
+            <Button title="Apply Filters" onPress={() => {applyFilters({setShowFilter, setLoading, currentQuery, searchPlacesWithNearby, setPlaces, setPinPlace, filters})}} />
             <Button title="Close" onPress={() => setShowFilter(false)} />
           </View>
         </View>
@@ -291,79 +245,3 @@ export default function AttractionsScreen() {
     </View>
   );
 }
-
-const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: "#fff" },
-  input: {
-    marginTop: 50,
-    marginHorizontal: 12,
-    padding: 10,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 8,
-    fontSize: 16,
-    backgroundColor: "#f9f9f9",
-  },
-  filterButton: {
-    margin: 12,
-    padding: 10,
-    backgroundColor: "#6e57c5",
-    borderRadius: 8,
-    alignItems: "center",
-  },
-  loading: { textAlign: "center", marginTop: 20, fontSize: 16 },
-  map: { height: 200, margin: 12, borderRadius: 8 },
-  list: { paddingBottom: 50 },
-  card: {
-    flexDirection: "row",
-    alignItems: "center",
-    backgroundColor: "#fafafa",
-    marginHorizontal: 12,
-    marginVertical: 6,
-    padding: 10,
-    borderRadius: 8,
-    elevation: 1,
-  },
-  cardSelected: { borderWidth: 2, borderColor: "#6e57c5" },
-  photo: { width: 60, height: 60, borderRadius: 6, marginRight: 10 },
-  title: { fontSize: 16, fontWeight: "600", marginBottom: 2 },
-  rating: { fontSize: 14, color: "#444" },
-  distance: { fontSize: 12, color: "#666" },
-  actionButton: {
-    marginTop: 6,
-    marginRight: 6,
-    paddingVertical: 4,
-    paddingHorizontal: 8,
-    backgroundColor: "#6e57c5",
-    borderRadius: 4,
-    alignSelf: "flex-start",
-  },
-  actionButtonText: { color: "#fff", fontWeight: "600" },
-  empty: { textAlign: "center", marginTop: 20, fontSize: 16, color: "#777" },
-  modalContainer: { flex: 1, justifyContent: "center", backgroundColor: "rgba(0,0,0,0.3)" },
-  modalContent: { backgroundColor: "#fff", margin: 20, borderRadius: 8, padding: 16 },
-  typeButton: {
-    padding: 6,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    margin: 4,
-  },
-  typeButtonSelected: { backgroundColor: "#6e57c5", borderColor: "#6e57c5" },
-  ratingButton: {
-    padding: 6,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    margin: 4,
-  },
-  ratingButtonSelected: { backgroundColor: "#6e57c5", borderColor: "#6e57c5" },
-  distanceButton: {
-    padding: 6,
-    borderWidth: 1,
-    borderColor: "#ccc",
-    borderRadius: 6,
-    margin: 4,
-  },
-  distanceButtonSelected: { backgroundColor: "#6e57c5", borderColor: "#6e57c5" },
-});

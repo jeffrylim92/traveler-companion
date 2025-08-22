@@ -6,27 +6,27 @@ export type Filters = {
   maxDistance: number;
 };
 
-export const toggleType = (type: string) => {
-    setFilters((prev) => ({
-        ...prev,
-        types: prev.types.includes(type)
-        ? prev.types.filter((t) => t !== type)
-        : [...prev.types, type],
-    }));
+export const toggleType = (type: string, filters: Filters, setFilters: (value: Filters) => void) => {
+    setFilters({
+        ...filters,
+        types: filters.types.includes(type)
+        ? filters.types.filter((t) => t !== type)
+        : [...filters.types, type],
+    });
 };
 
-export const toggleRating = (rating: number) => {
-    setFilters((prev) => ({
-        ...prev,
-        ratings: prev.ratings.includes(rating) ? prev.ratings.filter((previousRating) => previousRating !== rating) : [...prev.ratings, rating],
-    }));
+export const toggleRating = (rating: number, filters: Filters, setFilters: (value: Filters) => void) => {
+    setFilters({
+        ...filters,
+        ratings: filters.ratings.includes(rating) ? filters.ratings.filter((previousRating: number) => previousRating !== rating) : [...filters.ratings, rating],
+    });
 };
 
-  export const toggleDistance = (distance: number) => {
-    setFilters((prev) => ({
-      ...prev,
-      maxDistance: prev.maxDistance === distance ? 0 : distance, // 0 = no limit
-    }));
+  export const toggleDistance = (distance: number, filters: Filters, setFilters: (value: Filters) => void) => {
+    setFilters({
+      ...filters,
+      maxDistance: filters.maxDistance === distance ? 0 : distance, // 0 = no limit
+    });
   };
 
 export function applyFiltersToPlaces(places: Place[], filters: Filters): Place[] {
