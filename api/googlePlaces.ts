@@ -1,4 +1,5 @@
 import { API_KEY } from "../constants";
+import { Linking } from "react-native";
 
 export interface Place {
   id: string;
@@ -8,31 +9,24 @@ export interface Place {
   rating?: number;
   distance?: number;
   photoUrl?: string;
-  types?: string[]; // ✅ Add types for filtering
+  types?: string[];
 }
 
-const BASE_URL = "https://places.googleapis.com/v1";
+const LEGACY_BASE_URL = "https://maps.googleapis.com/maps/api/place";
 
 /**
  * Get coordinates for a search query (exact match)
  */
 export async function getCoordinatesForQuery(query: string): Promise<{ lat: number; lng: number } | null> {
   try {
-    const response = await fetch(`${BASE_URL}/places:searchText`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": "places.location",
-      },
-      body: JSON.stringify({ textQuery: query }),
-    });
-
+    const response = await fetch(
+      `${LEGACY_BASE_URL}/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=geometry&key=${API_KEY}`
+    );
     const data = await response.json();
-    if (data.places && data.places.length > 0) {
+    if (data.candidates && data.candidates.length > 0) {
       return {
-        lat: data.places[0].location.latitude,
-        lng: data.places[0].location.longitude,
+        lat: data.candidates[0].geometry.location.lat,
+        lng: data.candidates[0].geometry.location.lng,
       };
     }
     return null;
@@ -47,42 +41,26 @@ export async function getCoordinatesForQuery(query: string): Promise<{ lat: numb
  */
 export async function searchNearby(lat: number, lng: number): Promise<Place[]> {
   try {
-    const response = await fetch(`${BASE_URL}/places:searchNearby`, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": "places.id,places.displayName,places.rating,places.location,places.photos,places.types",
-      },
-      body: JSON.stringify({
-        locationRestriction: {
-          circle: {
-            center: { latitude: lat, longitude: lng },
-            radius: 3000, // 3km
-          },
-        },
-      }),
-    });
-
+    const response = await fetch(
+      `${LEGACY_BASE_URL}/nearbysearch/json?location=${lat},${lng}&radius=3000&type=point_of_interest&key=${API_KEY}`
+    );
     const data = await response.json();
 
-    if (!data.places || !Array.isArray(data.places)) {
+    if (!data.results || !Array.isArray(data.results)) {
       return [];
     }
 
-    return data.places
-      .filter((p: any) => p?.location)
-      .map((p: any) => ({
-        id: p.id ?? crypto.randomUUID(),
-        name: p.displayName?.text ?? "Unnamed place",
-        lat: p.location.latitude,
-        lng: p.location.longitude,
-        rating: p.rating ?? undefined,
-        photoUrl: p.photos?.length
-          ? `https://places.googleapis.com/v1/${p.photos[0].name}/media?maxWidthPx=400&key=${API_KEY}`
-          : undefined,
-        types: p.types ?? [],
-      }));
+    return data.results.map((p: any) => ({
+      id: p.place_id,
+      name: p.name ?? "Unnamed place",
+      lat: p.geometry.location.lat,
+      lng: p.geometry.location.lng,
+      rating: p.rating ?? undefined,
+      photoUrl: p.photos?.length
+        ? `https://maps.googleapis.com/maps/api/place/photo?maxwidth=400&photoreference=${p.photos[0].photo_reference}&key=${API_KEY}`
+        : undefined,
+      types: p.types ?? [],
+    }));
   } catch (error) {
     console.error("searchNearby error:", error);
     return [];
@@ -94,12 +72,22 @@ export async function searchNearby(lat: number, lng: number): Promise<Place[]> {
  */
 export async function searchPlacesWithNearby(query: string): Promise<Place[]> {
   try {
-    const exactCoords = await getCoordinatesForQuery(query);
+    const exactCoordsRes = await fetch(
+      `${LEGACY_BASE_URL}/findplacefromtext/json?input=${encodeURIComponent(query)}&inputtype=textquery&fields=geometry,place_id&key=${API_KEY}`
+    );
+    const exactData = await exactCoordsRes.json();
 
-    if (!exactCoords) {
+    if (!exactData.candidates || exactData.candidates.length === 0) {
       console.warn("⚠️ No exact match found, showing fallback nearby.");
       return await searchNearby(5.4164, 100.3327); // Penang fallback
     }
+
+    const exactCandidate = exactData.candidates[0];
+    const exactCoords = {
+      lat: exactCandidate.geometry.location.lat,
+      lng: exactCandidate.geometry.location.lng,
+    };
+    const exactPlaceId = exactCandidate.place_id;
 
     const nearbyPlaces = await searchNearby(exactCoords.lat, exactCoords.lng);
 
@@ -116,12 +104,13 @@ export async function searchPlacesWithNearby(query: string): Promise<Place[]> {
 
     return [
       {
-        id: "exact",
+        id: exactPlaceId, // use real place_id here
         name: query,
         lat: exactCoords.lat,
         lng: exactCoords.lng,
         rating: undefined,
         distance: 0,
+        types: [],
       },
       ...withDistance,
     ];
@@ -130,6 +119,7 @@ export async function searchPlacesWithNearby(query: string): Promise<Place[]> {
     return [];
   }
 }
+
 
 /**
  * Haversine formula for distance in km
@@ -149,20 +139,10 @@ function haversineDistance(a: { lat: number; lng: number }, b: { lat: number; ln
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-export async function getPlaceReviews(placeId: string): Promise<string[]> {
-  try {
-    const res = await fetch(
-      `https://maps.googleapis.com/maps/api/place/details/json?place_id=${placeId}&fields=review&key=${API_KEY}`
-    );
-    const data = await res.json();
-
-    if (data.result?.reviews && Array.isArray(data.result.reviews)) {
-      // take latest 5 reviews
-      return data.result.reviews.slice(0, 5).map((r: any) => r.text || "");
-    }
-    return ["No reviews found."];
-  } catch (err) {
-    console.error("getPlaceReviews error:", err);
-    return ["Error fetching reviews."];
-  }
+/**
+ * Open place in Google Maps (reviews, details, etc.)
+ */
+export function openPlaceInMaps(placeId: string) {
+  const url = `https://www.google.com/maps/place/?q=place_id:${placeId}`;
+  Linking.openURL(url);
 }

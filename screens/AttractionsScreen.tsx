@@ -9,15 +9,15 @@ import {
   StyleSheet,
   Modal,
   Button,
-  Linking,
 } from "react-native";
 import MapView, { Marker } from "react-native-maps";
 import * as Location from "expo-location";
-import { searchPlacesWithNearby, Place, getPlaceReviews } from "../api/googlePlaces";
+import { searchPlacesWithNearby, Place, openPlaceInMaps } from "../api/googlePlaces";
 import styles from "./AttractionsScreenStyles";
 import { handleNavigate } from "../utils/navigationUtils";
 import { toggleDistance, toggleRating, toggleType } from "../utils/filterUtils";
 import { applyFilters } from "../utils/applyFiltersUtils";
+import * as Linking from "expo-linking";
 
 type Filters = {
   types: string[];
@@ -42,8 +42,6 @@ export default function AttractionsScreen() {
     maxDistance: 0,
   });
   const [showFilter, setShowFilter] = useState(false);
-  const [showReviewModal, setShowReviewModal] = useState(false);
-  const [selectedPlaceReview, setSelectedPlaceReview] = useState<{ name: string; reviews: string[] } | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -91,18 +89,6 @@ export default function AttractionsScreen() {
     }
   };
 
-  const openReview = async (place: Place) => {
-    try {
-      const reviews = await getPlaceReviews(place.id);
-      setSelectedPlaceReview({ name: place.name, reviews });
-      setShowReviewModal(true);
-    } catch (err) {
-      console.error("Failed to fetch reviews", err);
-      setSelectedPlaceReview({ name: place.name, reviews: ["Failed to load reviews."] });
-      setShowReviewModal(true);
-    }
-  };
-
   const renderItem = ({ item }: { item: Place }) => (
     <TouchableOpacity
       style={[styles.card, pinPlace?.id === item.id && styles.cardSelected]}
@@ -119,8 +105,16 @@ export default function AttractionsScreen() {
           <TouchableOpacity style={styles.actionButton} onPress={() => handleNavigate(userLocation, item)}>
             <Text style={styles.actionButtonText}>Navigate</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={[styles.actionButton, { backgroundColor: "#ff5722" }]} onPress={() => openReview(item)}>
-            <Text style={styles.actionButtonText}>Review</Text>
+          <TouchableOpacity
+            style={styles.actionButton}
+            onPress={() => {
+                if (item.id) {
+                const url = `https://www.google.com/maps/place/?q=place_id:${item.id}`;
+                Linking.openURL(url);
+                }
+            }}
+            >
+            <Text style={styles.actionButtonText}>Reviews</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -185,25 +179,21 @@ export default function AttractionsScreen() {
               ))}
             </View>
 
-            <Button title="Apply Filters" onPress={() => {applyFilters({setShowFilter, setLoading, currentQuery, searchPlacesWithNearby, setPlaces, setPinPlace, filters})}} />
-            <Button title="Close" onPress={() => setShowFilter(false)} />
-          </View>
-        </View>
-      </Modal>
-
-      {/* Review Modal */}
-      <Modal visible={showReviewModal} animationType="slide" transparent>
-        <View style={styles.modalContainer}>
-          <View style={styles.modalContent}>
-            <Text style={{ fontWeight: "600", fontSize: 18, marginBottom: 8 }}>
-              Reviews for {selectedPlaceReview?.name}
-            </Text>
-            <FlatList
-              data={selectedPlaceReview?.reviews ?? []}
-              keyExtractor={(_, index) => index.toString()}
-              renderItem={({ item }) => <Text style={{ marginBottom: 6 }}>• {item}</Text>}
+            <Button
+              title="Apply Filters"
+              onPress={() =>
+                applyFilters({
+                  setShowFilter,
+                  setLoading,
+                  currentQuery,
+                  searchPlacesWithNearby,
+                  setPlaces,
+                  setPinPlace,
+                  filters,
+                })
+              }
             />
-            <Button title="Close" onPress={() => setShowReviewModal(false)} />
+            <Button title="Close" onPress={() => setShowFilter(false)} />
           </View>
         </View>
       </Modal>
@@ -221,6 +211,9 @@ export default function AttractionsScreen() {
                 latitudeDelta: 0.05,
                 longitudeDelta: 0.05,
               }}
+              scrollEnabled={true}
+              zoomEnabled={true}
+              showsUserLocation={true}
             >
               <Marker
                 key={pinPlace.id}
